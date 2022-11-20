@@ -1,0 +1,140 @@
+version: "3.9"
+services:
+  recursive:
+    image: rtsundland/unbound:latest
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 3
+        window: 60s
+
+    # makes logging to stdout more verbose like
+    command: [ "-dd" ]
+
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - unboundconfig:/etc/unbound/unbound.conf.d
+
+    networks:
+      default:
+
+    ports:
+      - "53:53/udp"
+      - "53:53"
+  
+  bind:
+    image: rtsundland/bind9:latest
+    hostname: bindmaster
+
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - "node.role==manager"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+        window: 120s
+
+    environment:
+      - TZ=EST5EDT
+      - BIND9_USER=bind
+      - RECURSIVE_SERVICE_NAME=netstack_recursive
+
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - bindconfig:/etc/bind
+      - bindzones:/var/cache/bind/zones
+
+    networks:
+      default:
+
+  ntpd:
+    image: rtsundland/ntpd
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 3
+        window: 60s
+
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+
+    environment:
+      - MDNS_ENABLE=1
+      - CONFIG=/etc/ntp.conf
+
+    configs:
+      - source: ntpd_conf
+        target: /etc/ntp.conf
+        uid: '0'
+        gid: '0'
+        mode: 0400
+
+    cap_add:
+      - SYS_TIME		# ensures ntp can set system time
+
+    ports:
+      - "123:123/udp"
+
+  smtpd:
+    image: rtsundland/smtpd
+
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 10
+        window: 120s
+
+    environment:
+      MAIL_RELAY_HOST: "<relay-host>"
+      MAIL_RELAY_PORT: 587
+      MAIL_RELAY_USER: <your-relay-user>
+      MAIL_RELAY_PASS: <password>
+      MAIL_MYDOMAIN: <your-domain>
+      MAIL_MYNETWORKS: 192.168.1.0/24
+      MAIL_MYHOSTNAME: mail
+
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - mailspool:/var/spool/postfix
+
+    ports:
+      - "25:25/tcp"
+
+
+configs:
+  ntpd_conf:
+    file: ntpd/ntp.conf
+
+volumes:
+  bindconfig:
+    driver: gfs-netsvc
+    name: "bind/config"
+   
+  bindzones:
+    driver: gfs-netsvc
+    name: "bind/zones"
+
+  unboundconfig:
+    driver: gfs-netsvc
+    name: "unbound"
+
+  mailspool:
+    driver: local
+
+networks:
+  default:
+    driver: overlay
+    ipam:
+      config:
+        - subnet: 192.168.22.0/24
+
