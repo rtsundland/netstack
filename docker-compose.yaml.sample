@@ -3,7 +3,9 @@ services:
   recursive:
     image: rtsundland/unbound:latest
     deploy:
-      mode: global
+      replicas: 2
+      placement:
+        max_replicas_per_node: 1
       restart_policy:
         condition: on-failure
         delay: 15s
@@ -88,6 +90,8 @@ services:
 
     deploy:
       replicas: 2
+      placement:
+        max_replicas_per_node: 1
       restart_policy:
         condition: on-failure
         delay: 5s
